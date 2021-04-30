@@ -11,6 +11,8 @@ from bleak import BleakClient, BleakScanner
 from bleak.exc import BleakError
 
 import PIL.Image
+import PIL.ImageDraw
+import PIL.ImageFont
 
 # CRC8 table extracted from APK, pretty standard though
 crc8_table = [
@@ -78,10 +80,11 @@ async def drawTestPattern():
         # Set print quality to high
         await client.write_gatt_char(PrinterCharacteristic, formatMessage(SetQuality, [5]))
         # Set mode to image mode
-        await client.write_gatt_char(PrinterCharacteristic, formatMessage(DrawingMode, [1]))
+        await client.write_gatt_char(PrinterCharacteristic, formatMessage(DrawingMode, [0]))
 
-        image = PIL.Image.open(os.path.abspath(os.path.dirname(__file__)) + "/image.jpg")
-        image = image.convert("RGBA")
+        image = PIL.Image.new("RGBA", (400, 100), (0xFF, 0xFF, 0xFF, 0xFF))
+        draw = PIL.ImageDraw.Draw(image)
+        draw.text((10, 10), "Hello World!", font=PIL.ImageFont.truetype(os.path.abspath(os.path.dirname(__file__)) + "/Consolas.ttf", 40), fill=(0x00, 0x00, 0x00))
 
         for y in range(0, image.height): 
             bmp = []
@@ -108,7 +111,6 @@ async def drawTestPattern():
 
         # Feed extra paper for image to be visible
         await client.write_gatt_char(PrinterCharacteristic, formatMessage(FeedPaper, [0x70, 0x00]))
-
 
 
 loop = asyncio.get_event_loop()

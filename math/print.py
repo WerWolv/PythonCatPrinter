@@ -6,11 +6,17 @@ import asyncio
 import platform
 import time
 import os
+import io
 
 from bleak import BleakClient, BleakScanner
 from bleak.exc import BleakError
 
 import PIL.Image
+import PIL.ImageDraw
+import PIL.ImageFont
+import PIL.ImageChops
+
+import matplotlib.pyplot as plt
 
 # CRC8 table extracted from APK, pretty standard though
 crc8_table = [
@@ -68,6 +74,18 @@ SetQuality = 0xA4       # Data: 1 - 5
 PrinterAddress = "93:2A:BB:C4:95:8D"
 PrinterCharacteristic = "0000AE01-0000-1000-8000-00805F9B34FB"
 
+def latex_to_img(tex):
+    buf = io.BytesIO()
+    plt.rc('text', usetex=True)
+    plt.rc('font', family='serif')
+    plt.axis('off')
+    plt.text(0.05, 0.5, tex, size=38)
+    plt.savefig(buf, format='png')
+    plt.close()
+
+    im = PIL.Image.open(buf)
+    return im.resize((int(im.width / 2), int(im.height / 2)))
+
 async def drawTestPattern():
     device = await BleakScanner.find_device_by_address(PrinterAddress, timeout=20.0)
     if not device:
@@ -78,9 +96,9 @@ async def drawTestPattern():
         # Set print quality to high
         await client.write_gatt_char(PrinterCharacteristic, formatMessage(SetQuality, [5]))
         # Set mode to image mode
-        await client.write_gatt_char(PrinterCharacteristic, formatMessage(DrawingMode, [1]))
+        await client.write_gatt_char(PrinterCharacteristic, formatMessage(DrawingMode, [0]))
 
-        image = PIL.Image.open(os.path.abspath(os.path.dirname(__file__)) + "/image.jpg")
+        image = latex_to_img("Hello World\n" + r"$\oint \overrightarrow{B}\cdot d\overrightarrow{\! s}=\mu_0\varepsilon_0\frac{d\Phi_E}{dt}+\mu_0$")
         image = image.convert("RGBA")
 
         for y in range(0, image.height): 
@@ -108,7 +126,6 @@ async def drawTestPattern():
 
         # Feed extra paper for image to be visible
         await client.write_gatt_char(PrinterCharacteristic, formatMessage(FeedPaper, [0x70, 0x00]))
-
 
 
 loop = asyncio.get_event_loop()
