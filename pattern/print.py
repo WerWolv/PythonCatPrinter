@@ -1,7 +1,3 @@
-"""
-Connect by BLEDevice
-"""
-
 import asyncio
 import platform
 import time
