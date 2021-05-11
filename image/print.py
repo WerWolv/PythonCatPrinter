@@ -2,6 +2,7 @@ import asyncio
 import platform
 import time
 import os
+import math
 
 from bleak import BleakClient, BleakScanner
 from bleak.exc import BleakError
@@ -61,6 +62,8 @@ DrawingMode = 0xBE      # Data: 1 for Text, 0 for Images
 SetEnergy = 0xAF        # Data: 1 - 0xFFFF
 SetQuality = 0xA4       # Data: 0x31 - 0x35. APK always sets 0x33 for GB01
 
+PrinterWidth = 384
+
 PrinterAddress = ""
 PrinterCharacteristic = "0000AE01-0000-1000-8000-00805F9B34FB"
 device = None
@@ -88,18 +91,26 @@ async def drawTestPattern():
         await client.write_gatt_char(PrinterCharacteristic, formatMessage(DrawingMode, [0]))
 
         image = PIL.Image.open(os.path.abspath(os.path.dirname(__file__)) + "/image.png")
-        image = image.convert("RGBA")
+        if image.width > PrinterWidth:
+            # image is wider than printer resolution; scale it down proportionately
+            height = math.floor(image.height * (PrinterWidth / image.width))
+            image = image.resize((PrinterWidth, height))
+        image = image.convert("1")
+        if image.width < PrinterWidth:
+            # image is narrower than printer resolution; pad it out with white pixels
+            padded_image = PIL.Image.new("1", (PrinterWidth, image.height), 1)
+            padded_image.paste(image)
+            image = padded_image
 
         for y in range(0, image.height): 
             bmp = []
             bit = 0
-            # Turn RGBA8 line into 1bpp
+            # pack image data into 8 pixels per byte
             for x in range(0, image.width):
                 if bit % 8 == 0:
                     bmp += [0x00]
-                r, g, b, a = image.getpixel((x, y))
                 bmp[int(bit / 8)] >>= 1
-                if (r < 0x80 and g < 0x80 and b < 0x80 and a > 0x80):
+                if not image.getpixel((x, y)):
                     bmp[int(bit / 8)] |= 0x80
                 else:
                     bmp[int(bit / 8)] |= 0
