@@ -61,13 +61,24 @@ DrawingMode = 0xBE      # Data: 1 for Text, 0 for Images
 SetEnergy = 0xAF        # Data: 1 - 0xFFFF
 SetQuality = 0xA4       # Data: 1 - 5
 
-PrinterAddress = "93:2A:BB:C4:95:8D"
+PrinterAddress = ""
 PrinterCharacteristic = "0000AE01-0000-1000-8000-00805F9B34FB"
+device = None
+
+def detect_printer(detected, advertisement_data):
+    global device
+    if detected.name == 'GB01':
+        device = detected
 
 async def drawTestPattern():
-    device = await BleakScanner.find_device_by_address(PrinterAddress, timeout=20.0)
+    scanner = BleakScanner()
+    scanner.register_detection_callback(detect_printer)
+    await scanner.start()
+    await asyncio.sleep(5.0)
+    await scanner.stop()
+
     if not device:
-        raise BleakError(f"No device with address {PrinterAddress} could not be found.")
+        raise BleakError(f"No device named GB01 could be found.")
     async with BleakClient(device) as client:
         # Set energy used to a moderate level
         await client.write_gatt_char(PrinterCharacteristic, formatMessage(SetEnergy, [0x10, 0x00])) 
