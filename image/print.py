@@ -2,7 +2,6 @@ import asyncio
 import platform
 import time
 import os
-import math
 
 from bleak import BleakClient, BleakScanner
 from bleak.exc import BleakError
@@ -93,7 +92,7 @@ async def drawTestPattern():
         image = PIL.Image.open(os.path.abspath(os.path.dirname(__file__)) + "/image.png")
         if image.width > PrinterWidth:
             # image is wider than printer resolution; scale it down proportionately
-            height = math.floor(image.height * (PrinterWidth / image.width))
+            height = int(image.height * (PrinterWidth / image.width))
             image = image.resize((PrinterWidth, height))
         image = image.convert("1")
         if image.width < PrinterWidth:
