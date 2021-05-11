@@ -57,6 +57,8 @@ def formatMessage(command, data):
 RetractPaper = 0xA0     # Data: Number of steps to go back
 FeedPaper = 0xA1        # Data: Number of steps to go forward
 DrawBitmap = 0xA2       # Data: Line to draw. 0 bit -> don't draw pixel, 1 bit -> draw pixel
+GetDevState = 0xA3      # Data: 0
+GetDevInfo = 0xA8       # Data: 0
 DrawingMode = 0xBE      # Data: 1 for Text, 0 for Images
 SetEnergy = 0xAF        # Data: 1 - 0xFFFF
 SetQuality = 0xA4       # Data: 0x31 - 0x35. APK always sets 0x33 for GB01
@@ -65,12 +67,20 @@ PrinterWidth = 384
 
 PrinterAddress = ""
 PrinterCharacteristic = "0000AE01-0000-1000-8000-00805F9B34FB"
+NotifyCharacteristic = "0000AE02-0000-1000-8000-00805F9B34FB"
 device = None
 
 def detect_printer(detected, advertisement_data):
     global device
     if detected.name == 'GB01':
         device = detected
+
+
+def notification_handler(sender, data):
+    print("{0}: [ {1} ]".format(sender, " ".join("{:02X}".format(x) for x in data)))
+    if data[2] == GetDevState:
+        print("printer status byte: {:08b}".format(data[6]))
+
 
 async def drawTestPattern():
     scanner = BleakScanner()
@@ -82,6 +92,10 @@ async def drawTestPattern():
     if not device:
         raise BleakError(f"No device named GB01 could be found.")
     async with BleakClient(device) as client:
+        # Set up callback to handle messages from the printer
+        await client.start_notify(NotifyCharacteristic, notification_handler)
+        # Ask the printer how it's doing
+        await client.write_gatt_char(PrinterCharacteristic, formatMessage(GetDevState, [0x00]))
         # Set energy used to a moderate level
         await client.write_gatt_char(PrinterCharacteristic, formatMessage(SetEnergy, [0xE0, 0x2E]))
         # Set quality to standard
