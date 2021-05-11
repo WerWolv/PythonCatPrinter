@@ -59,7 +59,7 @@ FeedPaper = 0xA1        # Data: Number of steps to go forward
 DrawBitmap = 0xA2       # Data: Line to draw. 0 bit -> don't draw pixel, 1 bit -> draw pixel
 DrawingMode = 0xBE      # Data: 1 for Text, 0 for Images
 SetEnergy = 0xAF        # Data: 1 - 0xFFFF
-SetQuality = 0xA4       # Data: 1 - 5
+SetQuality = 0xA4       # Data: 0x31 - 0x35. APK always sets 0x33 for GB01
 
 PrinterAddress = ""
 PrinterCharacteristic = "0000AE01-0000-1000-8000-00805F9B34FB"
@@ -81,11 +81,11 @@ async def drawTestPattern():
         raise BleakError(f"No device named GB01 could be found.")
     async with BleakClient(device) as client:
         # Set energy used to a moderate level
-        await client.write_gatt_char(PrinterCharacteristic, formatMessage(SetEnergy, [0x10, 0x00])) 
-        # Set print quality to high
-        await client.write_gatt_char(PrinterCharacteristic, formatMessage(SetQuality, [5]))
+        await client.write_gatt_char(PrinterCharacteristic, formatMessage(SetEnergy, [0xE0, 0x2E]))
+        # Set quality to standard
+        await client.write_gatt_char(PrinterCharacteristic, formatMessage(SetQuality, [0x33]))
         # Set mode to image mode
-        await client.write_gatt_char(PrinterCharacteristic, formatMessage(DrawingMode, [1]))
+        await client.write_gatt_char(PrinterCharacteristic, formatMessage(DrawingMode, [0]))
 
         image = PIL.Image.open(os.path.abspath(os.path.dirname(__file__)) + "/image.png")
         image = image.convert("RGBA")
