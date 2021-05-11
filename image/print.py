@@ -76,7 +76,7 @@ async def drawTestPattern():
         # Set mode to image mode
         await client.write_gatt_char(PrinterCharacteristic, formatMessage(DrawingMode, [1]))
 
-        image = PIL.Image.open(os.path.abspath(os.path.dirname(__file__)) + "/image.jpg")
+        image = PIL.Image.open(os.path.abspath(os.path.dirname(__file__)) + "/image.png")
         image = image.convert("RGBA")
 
         for y in range(0, image.height): 
