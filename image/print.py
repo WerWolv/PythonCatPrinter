@@ -106,7 +106,10 @@ async def connect_and_send(data):
     scanner = BleakScanner()
     scanner.register_detection_callback(detect_printer)
     await scanner.start()
-    await asyncio.sleep(5.0)
+    for x in range(50):
+        await asyncio.sleep(0.1)
+        if device:
+            break
     await scanner.stop()
 
     if not device:
