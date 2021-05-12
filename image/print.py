@@ -58,20 +58,34 @@ RetractPaper = 0xA0     # Data: Number of steps to go back
 FeedPaper = 0xA1        # Data: Number of steps to go forward
 DrawBitmap = 0xA2       # Data: Line to draw. 0 bit -> don't draw pixel, 1 bit -> draw pixel
 GetDevState = 0xA3      # Data: 0
+ControlLattice = 0xA6   # Data: Eleven bytes, all constants. One set used before printing, one after.
 GetDevInfo = 0xA8       # Data: 0
+OtherFeedPaper = 0xBD   # Data: one byte, set to a device-specific "Speed" value before printing and to 0x19 before feeding blank paper
 DrawingMode = 0xBE      # Data: 1 for Text, 0 for Images
 SetEnergy = 0xAF        # Data: 1 - 0xFFFF
 SetQuality = 0xA4       # Data: 0x31 - 0x35. APK always sets 0x33 for GB01
 
+PrintLattice = [ 0xAA, 0x55, 0x17, 0x38, 0x44, 0x5F, 0x5F, 0x5F, 0x44, 0x38, 0x2C ]
+FinishLattice = [ 0xAA, 0x55, 0x17, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x17 ]
+
+
 PrinterWidth = 384
+ImgPrintSpeed = [ 0x23 ]
+BlankSpeed = [ 0x19 ]
+PacketLength = 30   # This is the first value I tried; it might be too low
 
 PrinterAddress = ""
 PrinterCharacteristic = "0000AE01-0000-1000-8000-00805F9B34FB"
 NotifyCharacteristic = "0000AE02-0000-1000-8000-00805F9B34FB"
 device = None
 
+
 def detect_printer(detected, advertisement_data):
     global device
+    # This isn't necessarily a great way to detect the printer.
+    # It's the way the app does it, but the app has an actual UI where you can pick your device from a list.
+    # Ideally this function would filter for known characteristics, but I don't know how hard that would be or what
+    # kinds of problems it could cause. For now, I just want to get my printer working.
     if detected.name == 'GB01':
         device = detected
 
@@ -80,9 +94,15 @@ def notification_handler(sender, data):
     print("{0}: [ {1} ]".format(sender, " ".join("{:02X}".format(x) for x in data)))
     if data[2] == GetDevState:
         print("printer status byte: {:08b}".format(data[6]))
+        # xxxxxxx1 no_paper ("No paper.")
+        # xxxxxx10 paper_positions_open ("Warehouse.")
+        # xxxxx100 too_hot ("Too hot, please let me take a break.")
+        # xxxx1000 no_power_please_charge ("I have no electricity, please charge")
+        # I don't know if multiple status bits can be on at once, but if they are, then iPrint won't detect them.
+        # In any case, I think the low battery flag is the only one the GB01 uses.
 
 
-async def drawTestPattern():
+async def connect_and_send(data):
     scanner = BleakScanner()
     scanner.register_detection_callback(detect_printer)
     await scanner.start()
@@ -94,20 +114,35 @@ async def drawTestPattern():
     async with BleakClient(device) as client:
         # Set up callback to handle messages from the printer
         await client.start_notify(NotifyCharacteristic, notification_handler)
+
+        while(data):
+            # Cut the command stream up into pieces small enough for the printer to handle
+            await client.write_gatt_char(PrinterCharacteristic, data[:PacketLength])
+            data = data[PacketLength:]
+            # I was going to put an await asyncio.sleep() call here, but I didn't seem to need one?
+
+
+def drawTestPattern():
+        cmdqueue = []
         # Ask the printer how it's doing
-        await client.write_gatt_char(PrinterCharacteristic, formatMessage(GetDevState, [0x00]))
-        # Set energy used to a moderate level
-        await client.write_gatt_char(PrinterCharacteristic, formatMessage(SetEnergy, [0xE0, 0x2E]))
+        cmdqueue += formatMessage(GetDevState, [0x00])
         # Set quality to standard
-        await client.write_gatt_char(PrinterCharacteristic, formatMessage(SetQuality, [0x33]))
+        cmdqueue += formatMessage(SetQuality, [0x33])
+        # start and/or set up the lattice, whatever that is
+        cmdqueue += formatMessage(ControlLattice, PrintLattice)
+        # Set energy used to a moderate level
+        cmdqueue += formatMessage(SetEnergy, [0xE0, 0x2E])
         # Set mode to image mode
-        await client.write_gatt_char(PrinterCharacteristic, formatMessage(DrawingMode, [0]))
+        cmdqueue += formatMessage(DrawingMode, [0])
+        # not entirely sure what this does
+        cmdqueue += formatMessage(OtherFeedPaper, ImgPrintSpeed)
 
         image = PIL.Image.open(os.path.abspath(os.path.dirname(__file__)) + "/image.png")
         if image.width > PrinterWidth:
             # image is wider than printer resolution; scale it down proportionately
             height = int(image.height * (PrinterWidth / image.width))
             image = image.resize((PrinterWidth, height))
+        # convert image to black-and-white 1bpp color format
         image = image.convert("1")
         if image.width < PrinterWidth:
             # image is narrower than printer resolution; pad it out with white pixels
@@ -115,7 +150,7 @@ async def drawTestPattern():
             padded_image.paste(image)
             image = padded_image
 
-        for y in range(0, image.height): 
+        for y in range(0, image.height):
             bmp = []
             bit = 0
             # pack image data into 8 pixels per byte
@@ -130,17 +165,20 @@ async def drawTestPattern():
 
                 bit += 1
 
-            # Draw line
-            await client.write_gatt_char(PrinterCharacteristic, formatMessage(DrawBitmap, bmp))
-            # Advance line one step
-            await client.write_gatt_char(PrinterCharacteristic, formatMessage(FeedPaper, [0, 1]))
-            # Wait a bit to prevent printer from getting jammed. This can be fixed by sending compressed data like the app does. However I did not yet RE this.
-            time.sleep(0.04)
+            cmdqueue += formatMessage(DrawBitmap, bmp)
 
         # Feed extra paper for image to be visible
-        await client.write_gatt_char(PrinterCharacteristic, formatMessage(FeedPaper, [0x70, 0x00]))
+        cmdqueue += formatMessage(OtherFeedPaper, BlankSpeed)
+        cmdqueue += formatMessage(FeedPaper, [0x70, 0x00])
+
+        # iPrint sends another GetDevState request at this point, but we're not staying long enough for an answer
+
+        # finish the lattice, whatever that means
+        cmdqueue += formatMessage(ControlLattice, FinishLattice)
+
+        return cmdqueue
 
 
-
+printdata = drawTestPattern()
 loop = asyncio.get_event_loop()
-loop.run_until_complete(drawTestPattern())
+loop.run_until_complete(connect_and_send(printdata))
