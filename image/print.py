@@ -67,7 +67,8 @@ SetQuality = 0xA4       # Data: 0x31 - 0x35. APK always sets 0x33 for GB01
 
 PrintLattice = [ 0xAA, 0x55, 0x17, 0x38, 0x44, 0x5F, 0x5F, 0x5F, 0x44, 0x38, 0x2C ]
 FinishLattice = [ 0xAA, 0x55, 0x17, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x17 ]
-
+XOff = ( 0x51, 0x78, 0xAE, 0x01, 0x01, 0x00, 0x10, 0x70, 0xFF )
+XOn = ( 0x51, 0x78, 0xAE, 0x01, 0x01, 0x00, 0x00, 0x00, 0xFF )
 
 PrinterWidth = 384
 ImgPrintSpeed = [ 0x23 ]
@@ -78,6 +79,9 @@ PrinterAddress = ""
 PrinterCharacteristic = "0000AE01-0000-1000-8000-00805F9B34FB"
 NotifyCharacteristic = "0000AE02-0000-1000-8000-00805F9B34FB"
 device = None
+
+# global flag for flow control signaling, because I don't know the right way to do this
+transmit = True
 
 
 def detect_printer(detected, advertisement_data):
@@ -91,7 +95,16 @@ def detect_printer(detected, advertisement_data):
 
 
 def notification_handler(sender, data):
+    global transmit
     print("{0}: [ {1} ]".format(sender, " ".join("{:02X}".format(x) for x in data)))
+    if tuple(data) == XOff:
+        print("Pausing transmission.")
+        transmit = False
+        return
+    if tuple(data) == XOn:
+        print("Resuming transmission.")
+        transmit = True
+        return
     if data[2] == GetDevState:
         print("printer status byte: {:08b}".format(data[6]))
         # xxxxxxx1 no_paper ("No paper.")
@@ -100,6 +113,7 @@ def notification_handler(sender, data):
         # xxxx1000 no_power_please_charge ("I have no electricity, please charge")
         # I don't know if multiple status bits can be on at once, but if they are, then iPrint won't detect them.
         # In any case, I think the low battery flag is the only one the GB01 uses.
+        return
 
 
 async def connect_and_send(data):
@@ -122,7 +136,10 @@ async def connect_and_send(data):
             # Cut the command stream up into pieces small enough for the printer to handle
             await client.write_gatt_char(PrinterCharacteristic, data[:PacketLength])
             data = data[PacketLength:]
-            # I was going to put an await asyncio.sleep() call here, but I didn't seem to need one?
+            while not transmit:
+                # Pause transmission per printer request.
+                # Note: doing it this way does not appear to actually work.
+                await asyncio.sleep(0)
 
 
 def drawTestPattern():
