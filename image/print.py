@@ -136,6 +136,7 @@ async def connect_and_send(data):
             # Cut the command stream up into pieces small enough for the printer to handle
             await client.write_gatt_char(PrinterCharacteristic, data[:PacketLength])
             data = data[PacketLength:]
+            await asyncio.sleep(0.01)
             while not transmit:
                 # Pause transmission per printer request.
                 # Note: doing it this way does not appear to actually work.
